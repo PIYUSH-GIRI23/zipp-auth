@@ -9,18 +9,30 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 
-connectToDatabase();
+async function startServer() {
+    try {
+        await connectToDatabase();
+        
+        app.use(cors({
+            origin: '*'
+        }));
+        
+        app.get('/', (req, res) => {
+            res.send('Auth service is running');
+        });
+        app.use(express.json());
+        
+        app.use('/', manageAuth);
+        
+        app.listen(PORT, () => {
+            console.log(`auth is running on port ${PORT}`);
+        });
 
-app.use(cors({
-    origin: '*'
-}));
+    }
+    catch (error) {
+        console.error('❌ Server startup error:', error);
+        process.exit(1);
+    }
+}
 
-app.use(express.json());
-
-app.use('/', manageAuth);
-app.get('/', (req, res) => {
-    res.send('Auth service is running');
-});
-app.listen(PORT, () => {
-    console.log(`auth is running on port ${PORT}`);
-});
+startServer();
