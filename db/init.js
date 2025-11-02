@@ -10,11 +10,7 @@ const connectToDatabase = async () => {
   try {
     const uri = process.env.MONGO_URI;
     
-    client = new MongoClient(uri, {
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-    });
+    client = new MongoClient(uri);
 
     await client.connect();
     console.log('Connected to MongoDB successfully');
