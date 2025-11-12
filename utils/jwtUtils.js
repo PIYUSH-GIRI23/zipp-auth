@@ -80,13 +80,14 @@ export const verifyToken = async (token, deviceInfo) => {
             throw new Error('Unknown device or session expired');
         }
 
-        // Update last login timestamp
+        // Update last login timestamp (use atomic update to avoid overwriting history)
         const currentTime = Date.now();
         ipEntry.data[ipEntry.data.length - 1] = currentTime;
 
+        // Update only the matching history entry's data and lastUpdated atomically
         await authCollection.updateOne(
-            { _id: user._id },
-            { $set: { history, lastUpdated: currentTime } }
+            { _id: user._id, 'history.ip': currentIp },
+            { $set: { 'history.$.data': ipEntry.data, lastUpdated: currentTime } }
         );
 
         return {

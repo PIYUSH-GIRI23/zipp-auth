@@ -208,9 +208,8 @@ router.post('/login', async (req, res) => {
         const tokens = generateTokens({ userId: user._id.toString() }, rememberMe);
         const currentTime = Date.now();
 
-        let history = user.history || [];
+        // Use atomic updates to avoid overwriting the whole history array (prevents race conditions)
         if (deviceInfo && deviceInfo.ip) {
-            const existing = history.find(h => h.ip === deviceInfo.ip);
             const newEntry = {
                 ip: deviceInfo.ip,
                 data: [
@@ -224,17 +223,30 @@ router.post('/login', async (req, res) => {
                     currentTime
                 ]
             };
-            if (existing) {
-                existing.data = newEntry.data;
-            } else {
-                history.push(newEntry);
-            }
-        }
 
-        await authCollection.updateOne(
-            { _id: user._id },
-            { $set: { history, lastLogin: currentTime, lastUpdated: currentTime } }
-        );
+            // Try to update existing entry matching the IP atomically
+            const updateExisting = await authCollection.updateOne(
+                { _id: user._id, 'history.ip': deviceInfo.ip },
+                { $set: { 'history.$.data': newEntry.data, lastLogin: currentTime, lastUpdated: currentTime } }
+            );
+
+            // If there was no existing entry for this IP, push a new one. Keep history capped to last 10 entries.
+            if (updateExisting.matchedCount === 0) {
+                await authCollection.updateOne(
+                    { _id: user._id },
+                    {
+                        $push: { history: { $each: [newEntry], $slice: -10 } },
+                        $set: { lastLogin: currentTime, lastUpdated: currentTime }
+                    }
+                );
+            }
+        } else {
+            // No device info provided - only update login timestamps
+            await authCollection.updateOne(
+                { _id: user._id },
+                { $set: { lastLogin: currentTime, lastUpdated: currentTime } }
+            );
+        }
 
         notifyLogin(user.email, currentTime, user.name, deviceInfo)
             .catch(err => console.error('Redis notification error:', err));

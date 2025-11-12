@@ -21,9 +21,8 @@ const configureGoogleStrategy = () => {
 
             if (user) {
                 // ----- EXISTING USER -----
-               let history = user.history || [];
-                if (deviceInfo && deviceInfo.ip) {
-                    const existing = history.find(h => h.ip === deviceInfo.ip);
+               // Use atomic updates to avoid overwriting whole history
+               if (deviceInfo && deviceInfo.ip) {
                     const newEntry = {
                         ip: deviceInfo.ip,
                         data: [
@@ -37,30 +36,33 @@ const configureGoogleStrategy = () => {
                             currentTime
                         ]
                     };
-                    if (existing) {
-                        existing.data = newEntry.data;
-                    } else {
-                        history.push(newEntry);
+
+                    const updateExisting = await authCollection.updateOne(
+                        { email, 'history.ip': deviceInfo.ip },
+                        { $set: { 'history.$.data': newEntry.data, lastLogin: currentTime, lastUpdated: currentTime, googleId: profile.id } }
+                    );
+
+                    if (updateExisting.matchedCount === 0) {
+                        await authCollection.updateOne(
+                            { email },
+                            { $push: { history: { $each: [newEntry], $slice: -10 } }, $set: { lastLogin: currentTime, lastUpdated: currentTime, googleId: profile.id } }
+                        );
                     }
+
+                    // refresh user fields in memory
+                    user.history = (user.history || []).filter(h => h.ip !== deviceInfo.ip).concat([newEntry]).slice(-10);
+                    user.lastLogin = currentTime;
+                    user.lastUpdated = currentTime;
+                    user.googleId = profile.id;
+                } else {
+                    await authCollection.updateOne(
+                        { email },
+                        { $set: { lastLogin: currentTime, lastUpdated: currentTime, googleId: profile.id } }
+                    );
+                    user.lastLogin = currentTime;
+                    user.lastUpdated = currentTime;
+                    user.googleId = profile.id;
                 }
-
-
-                // Update user document
-                await authCollection.updateOne(
-                    { email },
-                    {
-                        $set: {
-                            lastLogin: currentTime,
-                            lastUpdated: currentTime,
-                            googleId: profile.id,
-                            history
-                        }
-                    }
-                );
-
-                user.history = history;
-                user.lastLogin = currentTime;
-                user.lastUpdated = currentTime;
                 return done(null, { user, isNewUser: false, deviceInfo });
             }
 
